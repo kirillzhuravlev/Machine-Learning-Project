@@ -1,0 +1,88 @@
+---
+title: "Exercise Quality Prediction"
+author: "Kirill Zhuravlev"
+date: "September 23, 2015"
+output: html_document
+---
+
+The purpose of this work is to create a model able to predict the manner in which people performed exercises. The technical data for the model was obtained from http://groupware.les.inf.puc-rio.br/har [1]. 
+
+The exercise involved some weight lifting and the data monitored contained some readings from accelerometers connected to a person's belt, arm, forearm, and dumbbell they lifted. The set we used to build over model upon contained information about the manner the people did the exercises and the testing set contains just the information from the monitors.
+
+The motion of any object can be described by its acceleration and initial velocity, according to a classical mechanics. Since all motion in our case started from the rest and from roughly the same position, all we need to know about the manner of motion is the acceleration. Complex muscle and body motion can be described by linear and angular accelerations, which correspond to the variables named "accel...", "yaw...", "total_accel...", "pitch...", or "roll...", where "..." shall be replaced by appropriate indicators corresponding to forearm, arm, bel, or dumbbell. Yaw, pitch, and roll describe angular accelerations and there are also three translational components: x, y, and z. Total acceleration is also determined, but it shall be possible to determine it from six other accelerations corresponding to the same monitor. Thus, based on the considerations from physics, we chose to work with the total acceleration, three translational components, and two of angular accelerations: roll and pitch. All other columns were ignored in our model.
+
+Below is the summary of the original data:
+```{r, echo=FALSE, include=FALSE}
+library(ggplot2)
+library(kernlab)
+library(caret)
+library(randomForest)
+
+#function writes the content of vector x into text files
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+#reading the training set
+training<-read.csv("pml-training.csv", sep=",")
+
+head(training)
+summary(training)
+```
+
+Next, we formed a dataset using only variables we believe are relevant:
+
+```{r, echo=FALSE}
+x<-substr(names(training), 1,5)=="accel"
+y<-substr(names(training), 1,5)=="total"
+z<-substr(names(training), 1,4)=="roll"
+w<-substr(names(training), 1,5)=="pitch"
+
+#subsetting the data
+data1<-(cbind(training[,x], training[,y], training[,z], training[,w],training[,160]))
+names(data1)[ncol(data1)]='Classe'
+
+g <- ggplot(data1, aes(x=total_accel_belt, y=total_accel_dumbbell))
+g <- g+geom_point(aes(color=factor(Classe)), size=3)
+g
+```
+Fig. 1. Total acceleration of dumbbell as a function of the total acceleration of the belt.
+```{r, echo=FALSE}
+featurePlot(x=data1[,-ncol(data1)], y=factor(data1$Classe), plot="pairs")
+```
+Fig. 2. Variables plotted against each other.
+
+Since the Classe variable, describing the manner of exercise, is the factor variable, we chose Random Forest model for our predictive analysis. We splitted the training set into two sets: model-training set and model-testing set. Model-training set contained about 75% of all the data and model-testing set contained 25% of it. We built our model on the model-training set and then applied it to the model-testing set for cross-validation.
+
+```{r, echo=FALSE, warning=FALSE}
+#creating training and testing subsets for cross-validation
+set.seed(1342)
+in_train<-createDataPartition(y=data1$Classe, p=0.75, list=FALSE)
+tr<-data1[in_train,]
+testing<-data1[-in_train,]
+#building a predictive model
+modFit<-train(factor(tr$Classe)~., method="rf", preProcess="pca", data=tr)
+
+#results of cross-validation
+confusionMatrix(testing$Classe, predict(modFit, testing))
+```
+
+Overall out of sample accuracy was estimated to be 95%. Finally, we applied our model to the testing set and predicted the manner of the exercise for 20 cases. The results of our prediction are presented below:
+
+```{r, echo=FALSE}
+#application of the predictive model to a new set of data
+validation<-read.csv("pml-testing.csv", sep=",")
+results<-predict(modFit, validation)
+pml_write_files(results)
+#printing the results on screen
+print(results)
+```
+
+In conclusion, our model is based on some considerations from physics and, therefore, has some solid scientific foundation. It was able to succefssfully predict the manner in which persons performed their exercises in all 20 cases.
+
+References:
+[1] Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
